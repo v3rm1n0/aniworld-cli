@@ -35,7 +35,7 @@ search_anime() {
     json=$(curl -s --compressed --max-time 10 -X POST \
                 -A "$USER_AGENT" \
                 -H "Content-Type: application/x-www-form-urlencoded" \
-                -d "keyword=${query}" \
+                --data-urlencode "keyword=${query}" \
                 "${BASE_URL}/ajax/search")
 
     clear_loading
@@ -139,7 +139,8 @@ get_hoster_links() {
             fi
 
             # Extrahiere Sprache (data-lang-key) und mappe zu lesbaren Namen
-            local lang_key=$(echo "$line" | sed -n 's/.*data-lang-key="\([^"]*\)".*/\1/p' | head -1)
+            local lang_key
+            lang_key=$(echo "$line" | sed -n 's/.*data-lang-key="\([^"]*\)".*/\1/p' | head -1)
 
             # Mappe language keys zu lesbaren Namen (basierend auf aniworld.to Konvention)
             case "$lang_key" in

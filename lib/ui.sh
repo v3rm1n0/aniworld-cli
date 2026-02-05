@@ -27,11 +27,12 @@ select_with_fzf() {
     local input
     input=$(cat)
 
-    # Windows-Fix: Verwende temporäre Datei statt Pipe (Pipes sind auf Git Bash instabil)
-    local tmpfile=$(mktemp)
+    local tmpfile
+    tmpfile=$(mktemp)
+    trap 'rm -f "$tmpfile"' RETURN
+
     echo "$input" > "$tmpfile"
 
-    # fzf liest von Datei, nicht von Pipe - stabiler auf Windows
     fzf --prompt="${prompt}: " \
         --reverse \
         --cycle \
@@ -41,17 +42,10 @@ select_with_fzf() {
         --border=rounded \
         --margin=1 \
         --info=inline < "$tmpfile"
-    local exit_code=$?
-
-    rm -f "$tmpfile"
-    return $exit_code
 }
 
-# Zeige Fehler (nur im Debug-Modus)
 show_error() {
-    if [ -n "${DEBUG:-}" ]; then
-        echo -e "${RED}ERROR: $1${RESET}" >&2
-    fi
+    echo -e "${RED}ERROR: $1${RESET}" >&2
 }
 
 # Zeige Info (immer anzeigen)

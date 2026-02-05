@@ -7,7 +7,7 @@ save_history() {
     local season="$2"
     local episode="$3"
     local timestamp
-    timestamp=$(date -Iseconds)
+    timestamp=$(date '+%Y-%m-%dT%H:%M:%S%z')
 
     mkdir -p "$DATA_DIR"
     echo "${slug}|${season}|${episode}|${timestamp}" >> "$HISTORY_FILE"

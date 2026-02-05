@@ -23,8 +23,11 @@ play_video() {
         return 1
     fi
 
-    # Töte alte mpv-Instanzen bevor neue gestartet wird
-    pkill -f "mpv" 2>/dev/null || true
+    # Töte vorherige aniworld-cli mpv-Instanz (nur unsere, nicht fremde)
+    if [ -n "${ANIWORLD_MPV_PID:-}" ] && kill -0 "$ANIWORLD_MPV_PID" 2>/dev/null; then
+        kill "$ANIWORLD_MPV_PID" 2>/dev/null || true
+        wait "$ANIWORLD_MPV_PID" 2>/dev/null || true
+    fi
 
     # Windows-kompatibel: Finde den korrekten Befehl
     local player_cmd=""
@@ -76,6 +79,7 @@ play_video() {
                     --stream-buffer-size=2M \
                     --demuxer-lavf-o=timeout=10000000 \
                     >/dev/null 2>&1 &
+                ANIWORLD_MPV_PID=$!
             else
                 "$player_cmd" "$video_url" \
                     --referrer="$referrer" \
@@ -90,6 +94,7 @@ play_video() {
                     --stream-buffer-size=2M \
                     --demuxer-lavf-o=timeout=10000000 \
                     >/dev/null 2>&1 &
+                ANIWORLD_MPV_PID=$!
             fi
             ;;
         vlc)
@@ -108,6 +113,7 @@ play_video() {
                 --network-caching=5000 \
                 --live-caching=5000 \
                 >/dev/null 2>&1 &
+            ANIWORLD_MPV_PID=$!
             ;;
     esac
 }
