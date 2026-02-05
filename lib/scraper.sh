@@ -226,40 +226,36 @@ extract_video_url() {
         video_url=$(extract_voe_url "$embed_url")
     elif [[ "$embed_url" == *"filemoon"* ]]; then
         video_url=$(extract_filemoon_url "$embed_url")
-    else
-        # Fallback: Versuche Embed-URL direkt
-        video_url="$embed_url"
     fi
 
-    echo "$video_url"
+    # Validate: must be non-empty and look like an actual video URL (not just an embed page)
+    if [ -n "$video_url" ] && [[ "$video_url" =~ \.(m3u8|mp4|ts)([\?#]|$) || "$video_url" == *"/hls/"* || "$video_url" == *"/playlist"* ]]; then
+        echo "$video_url"
+    elif [ -n "$video_url" ] && [ -n "${DEBUG:-}" ]; then
+        echo "WARN: Extracted URL doesn't look like a video: $video_url" >&2
+        echo ""
+    else
+        echo ""
+    fi
 }
 
 # Extrahiere VOE Video-URL
 extract_voe_url() {
     local embed_url="$1"
 
-    # VOE.sx redirects to another domain, follow JavaScript redirect
-    local html
-    html=$(curl -s -A "$USER_AGENT" "$embed_url")
-
-    # Parse redirect URL from JavaScript (Windows-kompatibel)
-    local redirect_url
-    redirect_url=$(echo "$html" | sed -n "s/.*window\.location\.href = '\([^']*\)'.*/\1/p" | head -1)
-
-    if [ -n "$redirect_url" ]; then
-        html=$(curl -s -A "$USER_AGENT" "$redirect_url")
+    if command -v node &>/dev/null; then
+        local video_url
+        video_url=$(node "${LIB_DIR}/extract_voe.js" "$embed_url" 2>/dev/null)
+        if [ -n "$video_url" ]; then
+            echo "$video_url"
+            return 0
+        fi
     fi
 
-    # Suche nach m3u8 oder mp4 URL (Windows-kompatibel mit sed/grep Fallback)
-    local video_url
-    video_url=$(echo "$html" | grep -o 'https\?://[^"'\'']*\.\(m3u8\|mp4\)[^"'\'']*' | grep -v "test-videos" | head -1)
-
-    if [ -n "$video_url" ]; then
-        echo "$video_url"
-    else
-        # Fallback: Embed-URL für mpv (yt-dlp könnte es schaffen)
-        echo "$embed_url"
+    if [ -n "${DEBUG:-}" ]; then
+        echo "WARN: VOE extraction failed (node.js required)" >&2
     fi
+    echo ""
 }
 
 # Extrahiere Vidmoly Video-URL
@@ -281,7 +277,10 @@ extract_vidmoly_url() {
     if [ -n "$video_url" ]; then
         echo "$video_url"
     else
-        echo "$embed_url"
+        if [ -n "${DEBUG:-}" ]; then
+            echo "WARN: Vidmoly m3u8 extraction failed for $embed_url" >&2
+        fi
+        echo ""
     fi
 }
 
@@ -299,8 +298,7 @@ extract_streamtape_url() {
     if [ -n "$video_url" ]; then
         echo "https://${video_url}"
     else
-        # Fallback: Embed-URL
-        echo "$embed_url"
+        echo ""
     fi
 }
 
@@ -316,37 +314,23 @@ extract_doodstream_url() {
     video_url=$(echo "$html" | grep -oP '\$\.get\(["\x27]/pass_md5/[^"'\'']+["\x27]' | grep -oP '/pass_md5/\K[^"'\'']+')
 
     if [ -n "$video_url" ]; then
-        # Hole finale URL
         local base_url
         base_url=$(echo "$embed_url" | grep -oP 'https?://[^/]+')
         video_url=$(curl -s -A "$USER_AGENT" "${base_url}/pass_md5/${video_url}")
         echo "$video_url"
     else
-        # Fallback: Embed-URL
-        echo "$embed_url"
+        echo ""
     fi
 }
 
-# Extrahiere Filemoon Video-URL
+# Extrahiere Filemoon Video-URL (broken - SPA migration, needs headless browser)
 extract_filemoon_url() {
     local embed_url="$1"
 
-    # Filemoon verschleiert die Video-URL mit obfusziertem JavaScript
-    # Verwende Node.js-Extractor, um die tatsächliche Video-URL zu dekodieren
-    if command -v node &>/dev/null; then
-        local video_url
-        video_url=$(node "${LIB_DIR}/extract_filemoon.js" "$embed_url" 2>/dev/null)
-
-        if [ -n "$video_url" ]; then
-            echo "$video_url"
-        else
-            # Fallback: Embed-URL (mpv wird es versuchen)
-            echo "$embed_url"
-        fi
-    else
-        # Node.js nicht verfügbar - Fallback
-        echo "$embed_url"
+    if [ -n "${DEBUG:-}" ]; then
+        echo "WARN: Filemoon is broken (SPA/Vite migration), skipping" >&2
     fi
+    echo ""
 }
 
 # Hole Anime-Titel (gecached)
@@ -401,6 +385,90 @@ get_total_episode_count() {
     echo "${slug}|${total}" >> "$EPISODE_COUNT_CACHE"
 
     echo "$total"
+}
+
+# Extrahiere Video-URL mit automatischem Hoster-Fallback
+# Output: Zeile 1 = Video-URL, Zeile 2 = Hoster-Name (fuer CURRENT_HOSTER_NAME)
+extract_video_with_fallback() {
+    local slug="$1"
+    local season="$2"
+    local episode="$3"
+
+    local hosters
+    hosters=$(get_hoster_links "$slug" "$season" "$episode")
+
+    if [ -z "$hosters" ]; then
+        return 1
+    fi
+
+    # Sortiere Hoster nach Score (gleiche Logik wie select_and_save_hoster)
+    local sorted_hosters
+    sorted_hosters=$(echo "$hosters" | awk -F'|' '
+        function language_score(lang) {
+            if (lang == "GerDub") return 300
+            if (lang == "GerSub") return 200
+            if (lang == "EngSub") return 100
+            return 0
+        }
+        function quality_score(qual) {
+            if (qual == "1080p") return 5
+            if (qual == "720p") return 4
+            if (qual == "480p") return 3
+            if (qual == "HD") return 2
+            return 1
+        }
+        function hoster_score(hoster) {
+            if (tolower(hoster) ~ /vidmoly/) return 50
+            if (tolower(hoster) ~ /voe/) return 40
+            if (tolower(hoster) ~ /filemoon/) return 5
+            if (tolower(hoster) ~ /streamtape/) return 5
+            if (tolower(hoster) ~ /doodstream/) return 5
+            return 1
+        }
+        {
+            lang_score = language_score($3)
+            qual_score = quality_score($4)
+            host_score = hoster_score($2)
+            total = (lang_score * 10000) + (qual_score * 100) + host_score
+            print total "|" $0
+        }
+    ' | sort -t'|' -k1 -nr | cut -d'|' -f2-)
+
+    # Probiere jeden Hoster der Reihe nach
+    while IFS='|' read -r hoster_id hoster_name language quality; do
+        [ -z "$hoster_id" ] && continue
+
+        if [ -n "${DEBUG:-}" ]; then
+            echo "DEBUG: Trying hoster $hoster_name (ID: $hoster_id)" >&2
+        fi
+
+        show_info "Versuche ${hoster_name}..."
+
+        local video_url
+        video_url=$(extract_video_url "$hoster_id")
+
+        if [ -n "$video_url" ]; then
+            # Baue Hoster-Anzeigename
+            local display_name="$hoster_name"
+            if [ "$language" != "N/A" ] && [ -n "$language" ]; then
+                display_name="${display_name} [${language}]"
+            fi
+            if [ "$quality" != "N/A" ] && [ -n "$quality" ]; then
+                display_name="${display_name} [${quality}]"
+            fi
+
+            echo "$video_url"
+            echo "$display_name"
+            return 0
+        fi
+
+        if [ -n "${DEBUG:-}" ]; then
+            echo "DEBUG: Hoster $hoster_name failed, trying next..." >&2
+        fi
+    done <<< "$sorted_hosters"
+
+    show_error "Kein funktionierender Hoster gefunden"
+    return 1
 }
 
 # Hole Video-URL für Episode (zentralisiert mit Loading-Nachrichten)

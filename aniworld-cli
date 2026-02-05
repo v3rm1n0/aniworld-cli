@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # Version
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # === Konfiguration ===
 # Resolve symlink to get actual script directory
@@ -257,12 +257,12 @@ select_and_save_hoster() {
                 return 1
             }
             function hoster_score(hoster) {
-                if (tolower(hoster) ~ /filemoon/) return 50
-                if (tolower(hoster) ~ /streamtape/) return 40
-                if (tolower(hoster) ~ /vidmoly/) return 30
-                if (tolower(hoster) ~ /doodstream/) return 20
-                if (tolower(hoster) ~ /voe/) return 10
-                return 5
+                if (tolower(hoster) ~ /vidmoly/) return 50
+                if (tolower(hoster) ~ /voe/) return 40
+                if (tolower(hoster) ~ /filemoon/) return 5
+                if (tolower(hoster) ~ /streamtape/) return 5
+                if (tolower(hoster) ~ /doodstream/) return 5
+                return 1
             }
             {
                 lang_score = language_score($3)
@@ -332,26 +332,29 @@ play_episode() {
 
     show_info "Staffel ${season}, Episode ${episode}"
 
-    # Hole Hoster
-    local hoster_id
-    hoster_id=$(select_and_save_hoster "$slug" "$season" "$episode" "false")
+    # Extrahiere Video-URL mit automatischem Fallback
+    local fallback_output
+    fallback_output=$(extract_video_with_fallback "$slug" "$season" "$episode")
 
-    if [ -z "$hoster_id" ]; then
+    if [ -z "$fallback_output" ]; then
+        show_error "Konnte Video-URL nicht extrahieren"
         return 1
     fi
 
-    # Extrahiere Video-URL
-    local video_url
-    video_url=$(extract_video_url "$hoster_id")
+    local video_url hoster_name
+    video_url=$(echo "$fallback_output" | head -1)
+    hoster_name=$(echo "$fallback_output" | sed -n '2p')
 
     if [ -z "$video_url" ]; then
         show_error "Konnte Video-URL nicht extrahieren"
         return 1
     fi
 
+    CURRENT_HOSTER_NAME="$hoster_name"
+
     # Setze Titel für Player
     CURRENT_TITLE=$(get_anime_title "$slug")
-    CURRENT_TITLE="${CURRENT_TITLE} - S${season}E${episode}"
+    CURRENT_TITLE="${CURRENT_TITLE} - S${season}E${episode} | ${CURRENT_HOSTER_NAME}"
 
     # Spiele ab
     play_video "$video_url"
@@ -381,27 +384,29 @@ main_loop() {
     # Aktualisiere CURRENT_TITLE für erste Episode
     CURRENT_TITLE="${anime_title} - S${season}E${episode}"
 
-    # Wähle Hoster (im Hauptprozess, damit CURRENT_HOSTER_NAME verfügbar ist)
-    local hoster_id
-    hoster_id=$(select_and_save_hoster "$slug" "$season" "$episode" "false")
+    # Extrahiere Video mit automatischem Hoster-Fallback
+    local fallback_output
+    fallback_output=$(extract_video_with_fallback "$slug" "$season" "$episode")
 
     local bg_pid=""
-    if [ -n "$hoster_id" ]; then
-        # Aktualisiere Titel mit Hoster-Info
-        CURRENT_TITLE="${anime_title} - S${season}E${episode} | ${CURRENT_HOSTER_NAME}"
+    if [ -n "$fallback_output" ]; then
+        local video_url hoster_name
+        video_url=$(echo "$fallback_output" | head -1)
+        hoster_name=$(echo "$fallback_output" | sed -n '2p')
 
-        # Lade und spiele Episode im Hintergrund
-        {
-            local video_url
-            video_url=$(extract_video_url "$hoster_id")
-            if [ -n "$video_url" ]; then
+        if [ -n "$video_url" ]; then
+            CURRENT_HOSTER_NAME="$hoster_name"
+            CURRENT_TITLE="${anime_title} - S${season}E${episode} | ${CURRENT_HOSTER_NAME}"
+            show_info "Hoster: ${CURRENT_HOSTER_NAME}"
+
+            {
                 play_video "$video_url"
                 save_history "$slug" "$season" "$episode"
-            else
-                show_error "Konnte Video-URL nicht extrahieren"
-            fi
-        } </dev/null &
-        bg_pid=$!
+            } </dev/null &
+            bg_pid=$!
+        else
+            show_error "Konnte Video-URL nicht extrahieren"
+        fi
     fi
 
     # Windows-Fix: Warte, bis Background-Prozess abgeschlossen ist
@@ -542,24 +547,26 @@ main_loop() {
                 ;;
         esac
 
-        # Wähle Hoster (im Hauptprozess)
-        local hoster_id
-        hoster_id=$(select_and_save_hoster "$slug" "$season" "$episode" "false")
+        # Extrahiere Video mit automatischem Hoster-Fallback
+        local fallback_output
+        fallback_output=$(extract_video_with_fallback "$slug" "$season" "$episode")
 
-        if [ -n "$hoster_id" ]; then
-            # Aktualisiere Titel mit Hoster-Info
-            CURRENT_TITLE="${anime_title} - S${season}E${episode} | ${CURRENT_HOSTER_NAME}"
+        if [ -n "$fallback_output" ]; then
+            local video_url hoster_name
+            video_url=$(echo "$fallback_output" | head -1)
+            hoster_name=$(echo "$fallback_output" | sed -n '2p')
 
-            # Lade und spiele Episode im Hintergrund (Menu bleibt sichtbar)
-            {
-                local video_url
-                video_url=$(extract_video_url "$hoster_id")
-                if [ -n "$video_url" ]; then
+            if [ -n "$video_url" ]; then
+                CURRENT_HOSTER_NAME="$hoster_name"
+                CURRENT_TITLE="${anime_title} - S${season}E${episode} | ${CURRENT_HOSTER_NAME}"
+                show_info "Hoster: ${CURRENT_HOSTER_NAME}"
+
+                {
                     play_video "$video_url"
                     save_history "$slug" "$season" "$episode"
-                fi
-            } </dev/null &
-            prev_bg_pid=$!
+                } </dev/null &
+                prev_bg_pid=$!
+            fi
         fi
     done
 }

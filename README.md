@@ -1,546 +1,231 @@
-# aniworld-cli
+<p align="center">
+<a href="#installation"><img src="https://img.shields.io/badge/os-linux-brightgreen"></a>
+<a href="#installation"><img src="https://img.shields.io/badge/os-mac-brightgreen"></a>
+<a href="#windows"><img src="https://img.shields.io/badge/os-windows-yellowgreen"></a>
+</p>
 
-Ein Bash-basiertes CLI-Tool zum Streamen von Animes von AniWorld.to mit deutschen Synchronisationen und Untertiteln.
+<h3 align="center">
+A CLI to browse and stream anime from <a href="https://aniworld.to/">aniworld.to</a> with German dubs/subs.
+</h3>
 
-Inspiriert von [ani-cli](https://github.com/pystardust/ani-cli), aber speziell für deutsche Anime-Inhalte optimiert.
+## Table of Contents
 
-## Features
+- [Usage](#usage)
+- [Install](#install)
+  - [Linux](#linux)
+  - [macOS](#macos)
+  - [Windows](#windows)
+  - [From Source](#from-source)
+- [Uninstall](#uninstall)
+- [Dependencies](#dependencies)
+- [Hoster Status](#hoster-status)
+- [FAQ](#faq)
+- [Contributing](#contributing)
+- [Disclaimer](#disclaimer)
 
-- 🎯 **Interaktiver Modus**: Starte `aniworld-cli` ohne Argument für interaktive Suche
-- 🔍 **Anime-Suche**: Suche nach Anime-Titeln auf AniWorld.to (AJAX API)
-- 📺 **Vollbild-fzf**: Nutzt das komplette Terminal-Fenster für bessere Übersicht
-- 📜 **Watch History**: Speichere deinen Fortschritt und setze dort fort, wo du aufgehört hast
-- 🎬 **Continue-Menü**: Elegantes fzf-Menü statt Y/n-Abfrage
-- 🎮 **Post-Episode-Menü**: Wähle nach jeder Episode: next, replay, previous, select, hoster, quit
-- 🌐 **Intelligente Auswahl**: Automatisch beste Sprache (GerDub), Qualität (1080p) und Hoster (Filemoon)
-- 🔄 **Manuelle Hoster-Wechsel**: Wechsle zwischen Streaming-Anbietern während der Wiedergabe
-- 🎥 **mpv/vlc Integration**: Nahtlose Video-Player-Integration mit yt-dlp Support
-- 🚀 **Binge-Watch-Modus**: Fließend durch Episoden navigieren
-- 🎨 **Clean UI**: Keine Console-Spam, nur fzf-Menüs und minimale Loading-Nachrichten
-- 💻 **Cross-Platform**: Linux, macOS und Windows (via Git Bash)
+## Usage
 
-## Dependencies
-
-Folgende Tools müssen installiert sein:
-
-- `curl` - Für HTTP-Requests
-- `grep` - Text-Verarbeitung
-- `sed` - Text-Verarbeitung
-- `fzf` - Interaktive Auswahl
-- `mpv` oder `vlc` - Video-Player
-- `yt-dlp` oder `youtube-dl` - **Empfohlen** für Video-URL-Extraktion
-- `node` (Node.js) - **Erforderlich** für Filemoon-Hoster-Unterstützung
-- `jq` - **Optional** für besseres JSON-Parsing
-
-**Wichtig:** Node.js wird für den Filemoon-Hoster benötigt, da dieser seine Video-URLs mit obfusziertem JavaScript verschleiert. Ohne Node.js funktioniert Filemoon nicht.
-
-### Installation der Dependencies
-
-**Ubuntu/Debian:**
-```bash
-sudo apt install curl grep sed fzf mpv yt-dlp nodejs jq
+```
+aniworld-cli [OPTIONS] [SEARCH]
 ```
 
-**Arch Linux:**
-```bash
-sudo pacman -S curl grep sed fzf mpv yt-dlp nodejs jq
+```
+aniworld-cli "One Piece"        # search and play
+aniworld-cli -c                  # continue last anime
+aniworld-cli -d "Naruto"         # debug mode
 ```
 
-**Fedora:**
-```bash
-sudo dnf install curl grep sed fzf mpv yt-dlp nodejs jq
-```
+After each episode a menu appears:
 
-**macOS:**
-```bash
-brew install curl grep gnu-sed fzf mpv yt-dlp node jq
-```
+| Command    | Action                              |
+|------------|-------------------------------------|
+| `next`     | Play next episode                   |
+| `replay`   | Replay current episode              |
+| `previous` | Go back one episode                 |
+| `select`   | Pick a different season/episode     |
+| `hoster`   | Manually switch streaming provider  |
+| `quit`     | Exit                                |
 
-**Windows:**
-```bash
-# In Git Bash (siehe Windows Installation Sektion)
-scoop install fzf mpv yt-dlp nodejs aria2 jq
-```
+The best hoster, language (GerDub > GerSub > EngSub) and quality (1080p > 720p) are selected automatically. Language always takes priority over quality and hoster.
 
-## Installation
+## Install
 
-### Package Manager Installation (Empfohlen)
+### Linux
 
-aniworld-cli kann über verschiedene Package Manager installiert werden.
+<details><summary>Arch (AUR)</summary>
 
-**→ Für detaillierte Installationsanleitungen siehe [INSTALLATION.md](INSTALLATION.md)**
-
-#### Arch Linux (AUR)
-
-```bash
-# Mit yay
+```sh
 yay -S aniworld-cli
+```
 
-# Oder development version
+Development version:
+
+```sh
 yay -S aniworld-cli-git
 ```
 
-#### Windows (Scoop)
+</details>
 
-```bash
-# Füge das aniworld-cli bucket hinzu
-scoop bucket add aniworld https://github.com/dxmoc/aniworld-cli.git
+<details><summary>Other distros (install script)</summary>
 
-# Installiere aniworld-cli
-scoop install aniworld/aniworld-cli
-```
-
-#### macOS/Linux (Homebrew)
-
-```bash
-# Füge das Tap hinzu
-brew tap dxmoc/aniworld-cli https://github.com/dxmoc/aniworld-cli.git
-
-# Installiere aniworld-cli
-brew install aniworld-cli
-```
-
-### Linux/macOS - Schnelle Installation
-
-```bash
-# Repository clonen
+```sh
 git clone https://github.com/dxmoc/aniworld-cli.git
 cd aniworld-cli
-
-# Install-Script ausführen
 chmod +x install.sh
 sudo ./install.sh
 ```
 
-Das Install-Script wird:
-- ✓ Automatisch dein Betriebssystem erkennen (Ubuntu, Arch, Fedora, Alpine, Void, Gentoo, Solus, NixOS, macOS)
-- ✓ Fehlende Dependencies installieren
-- ✓ aniworld-cli system-weit verfügbar machen
-- ✓ Data-Verzeichnis einrichten
+Supports Ubuntu/Debian, Fedora, Alpine, Void, Gentoo, Solus, NixOS. Installs missing dependencies automatically.
 
-**Windows-Nutzer:** Siehe [Windows Installation](#windows-installation) weiter unten.
+</details>
 
-### Manuelle Installation
+### macOS
 
-Falls du das Install-Script nicht verwenden möchtest:
+<details><summary>Homebrew</summary>
 
-1. Dependencies installieren:
-```bash
-# Ubuntu/Debian
-sudo apt install curl grep sed fzf mpv yt-dlp nodejs jq
-
-# Arch Linux
-sudo pacman -S curl grep sed fzf mpv yt-dlp nodejs jq
-
-# Fedora
-sudo dnf install curl grep sed fzf mpv yt-dlp nodejs jq
+```sh
+brew tap dxmoc/aniworld-cli https://github.com/dxmoc/aniworld-cli.git
+brew install aniworld-cli
 ```
 
-2. Symlink erstellen:
-```bash
-sudo ln -s "$(pwd)/aniworld-cli" /usr/local/bin/aniworld-cli
-```
+</details>
 
-### Windows Installation
+### Windows
 
-aniworld-cli funktioniert auf Windows über **Git Bash** in Windows Terminal. PowerShell/CMD werden nicht unterstützt.
+<details><summary>Scoop (Git Bash required)</summary>
 
-#### Voraussetzungen
+PowerShell/CMD are **not** supported. Use Git Bash inside Windows Terminal.
 
-**1. Scoop Package Manager installieren**
+**1. Setup:**
 
-Öffne PowerShell und folge der Anleitung auf [scoop.sh](https://scoop.sh/):
 ```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-```
-
-**2. Windows Terminal installieren** (falls nicht vorhanden)
-
-Windows 11: Bereits vorinstalliert
-Windows 10:
-```powershell
+# Install scoop (if not installed): https://scoop.sh
+scoop install git
 scoop bucket add extras
 scoop install extras/windows-terminal
 ```
 
-**3. Git Bash installieren und konfigurieren**
+Add a Git Bash profile in Windows Terminal:
+- Command line: `%GIT_INSTALL_ROOT%\bin\bash.exe -i -l`
+- Starting directory: `%USERPROFILE%`
 
-```powershell
-scoop install git
-```
+**2. Install dependencies and aniworld-cli:**
 
-Git Bash als Windows Terminal Profil einrichten:
-- Öffne Windows Terminal
-- Klicke auf das Dropdown-Menü (▼) → Einstellungen
-- Profile → Neues Profil hinzufügen → Neues leeres Profil
-- **Befehlszeile:** `C:\Program Files\Git\bin\bash.exe -i -l`
-- **Startverzeichnis:** `%USERPROFILE%`
-- **Name:** Git Bash
-- Speichern und Windows Terminal neu starten
-
-#### Installation
-
-Öffne das **Git Bash Profil** in Windows Terminal:
-
-**1. Dependencies installieren:**
-```bash
+```sh
 scoop bucket add extras
-scoop install fzf mpv yt-dlp nodejs aria2 jq
+scoop install fzf mpv yt-dlp nodejs jq
+
+scoop bucket add aniworld https://github.com/dxmoc/aniworld-cli.git
+scoop install aniworld/aniworld-cli
 ```
 
-**2. aniworld-cli installieren:**
-```bash
-# Repository clonen
-cd ~
+</details>
+
+### From Source
+
+```sh
 git clone https://github.com/dxmoc/aniworld-cli.git
-cd aniworld-cli
-
-# Zum PATH hinzufügen (in ~/.bashrc)
-echo "export PATH=\"\$HOME/aniworld-cli:\$PATH\"" >> ~/.bashrc
-source ~/.bashrc
-
-# Executable machen
-chmod +x aniworld-cli
+sudo ln -s "$(pwd)/aniworld-cli/aniworld-cli" /usr/local/bin/aniworld-cli
 ```
 
-**3. Testen:**
-```bash
-aniworld-cli --version
+## Uninstall
+
+<details>
+
+- **AUR:** `yay -R aniworld-cli`
+- **Homebrew:** `brew uninstall aniworld-cli`
+- **Scoop:** `scoop uninstall aniworld-cli`
+- **install.sh:** `cd aniworld-cli && sudo ./uninstall.sh`
+- **Manual:** `sudo rm /usr/local/bin/aniworld-cli`
+
+Optionally remove user data:
+
+```sh
+rm -rf ~/.local/share/aniworld-cli
 ```
 
-#### Windows-spezifische Hinweise
+</details>
 
-- ✅ Verwende **nur Git Bash** (keine PowerShell/CMD)
-- ✅ Windows Terminal wird empfohlen (bessere Unicode-Unterstützung)
-- ✅ mpv öffnet Videos in einem separaten Fenster
-- ⚠️ Falls fzf nicht reagiert: Stelle sicher, dass du Git Bash verwendest (nicht mintty)
+## Dependencies
 
-#### Troubleshooting
+| Dependency | Purpose                   | Required |
+|------------|---------------------------|----------|
+| curl       | HTTP requests             | yes      |
+| grep       | text processing           | yes      |
+| sed        | text processing           | yes      |
+| fzf        | interactive selection     | yes      |
+| mpv / vlc  | video playback            | yes      |
+| node       | VOE hoster extraction     | yes      |
+| yt-dlp     | enhanced video extraction | recommended |
+| jq         | JSON parsing              | optional |
 
-**Problem: "fzf: command not found"**
-```bash
-scoop install fzf
+<details><summary>Install commands per platform</summary>
+
+**Arch:**
+```sh
+sudo pacman -S curl grep sed fzf mpv yt-dlp nodejs jq
 ```
 
-**Problem: "mpv: command not found"**
-```bash
-scoop install mpv
+**Ubuntu/Debian:**
+```sh
+sudo apt install curl grep sed fzf mpv yt-dlp nodejs jq
 ```
 
-**Problem: Videos starten nicht**
-- Stelle sicher, dass yt-dlp installiert ist: `scoop install yt-dlp`
-- Prüfe mpv Installation: `mpv --version`
-- Für Filemoon-Hoster: Node.js installieren: `scoop install nodejs`
-
-**Problem: Encoding-Fehler bei deutschen Umlauten**
-```bash
-# In ~/.bashrc hinzufügen:
-export LANG=de_DE.UTF-8
-export LC_ALL=de_DE.UTF-8
+**Fedora:**
+```sh
+sudo dnf install curl grep sed fzf mpv yt-dlp nodejs jq
 ```
 
-**Problem: "Keine Hoster gefunden"**
-
-Wenn du diesen Fehler siehst, wurde die Hoster-Extraktion verbessert für Windows-Kompatibilität:
-
-1. **Mit Debug-Modus starten:**
-   ```bash
-   aniworld-cli --debug "Anime Name"
-   ```
-
-2. **HTML-Datei prüfen:**
-   Die Debug-Datei wird gespeichert unter:
-   ```
-   ~/.local/share/aniworld-cli/debug_episode.html
-   ```
-
-3. **GitHub Issue öffnen:**
-   Falls das Problem weiterhin besteht, öffne ein Issue auf GitHub mit:
-   - Deinem Betriebssystem (Windows/macOS/Linux)
-   - Der debug_episode.html Datei
-   - Der genauen Fehlermeldung
-
-**Windows-spezifisch:** Das Tool wurde für Windows Git Bash optimiert. Alle `grep -oP` Befehle wurden durch POSIX-kompatible `sed` Alternativen ersetzt.
-
-## Verwendung
-
-### Interaktiver Modus (Empfohlen)
-
-Starte aniworld-cli ohne Argument für den interaktiven Modus:
-```bash
-aniworld-cli
+**macOS:**
+```sh
+brew install curl grep gnu-sed fzf mpv yt-dlp node jq
 ```
 
-Du wirst dann gefragt:
-```
-INFO: Checking dependencies...
-Search anime: [hier tippen]
-```
-
-Nach der Suche öffnet sich ein fzf-Vollbild-Menü mit allen Ergebnissen. Du kannst:
-- 🔼🔽 Mit Pfeiltasten navigieren
-- ⌨️  Tippen um Ergebnisse zu filtern
-- ⏎  Enter drücken um auszuwählen
-
-### Schnelle Suche
-
-Suche direkt mit einem Argument:
-```bash
-aniworld-cli "One Piece"
+**Windows (Git Bash):**
+```sh
+scoop install fzf mpv yt-dlp nodejs jq
 ```
 
-### Fortsetzen
+</details>
 
-Setze den zuletzt geschauten Anime fort:
-```bash
-aniworld-cli --continue
-# oder
-aniworld-cli -c
-```
+## Hoster Status
 
-### Post-Episode-Menü
+| Hoster     | Status  | Notes                                       |
+|------------|---------|---------------------------------------------|
+| Vidmoly    | working | preferred, m3u8 directly in HTML            |
+| VOE        | working | requires Node.js for deobfuscation          |
+| Filemoon   | broken  | migrated to SPA (Vite/React), needs headless browser |
+| Streamtape | gone    | no longer listed on aniworld.to             |
+| Doodstream | gone    | no longer listed on aniworld.to             |
 
-Nach jeder Episode erscheint automatisch ein fzf-Menü:
-```
-> next      - Nächste Episode
-  replay    - Episode wiederholen
-  previous  - Vorherige Episode
-  select    - Andere Episode wählen
-  hoster    - Hoster/Qualität wechseln
-  quit      - Beenden
-```
+The tool automatically tries hosters in order of reliability. If the first one fails, it falls back to the next.
 
-Das Menü zeigt auch den aktuellen Hoster an:
-```
-Cowboy Bebop | S1E5/26 | Hoster: Streamtape
-```
+## FAQ
 
-### Debug-Modus
+<details>
 
-Bei Problemen (z.B. "Keine Hoster gefunden") starte mit Debug-Modus:
-```bash
-aniworld-cli --debug "Anime Name"
-# oder
-aniworld-cli -d "Anime Name"
-```
+- **Can I choose the language?** Automatic: GerDub > GerSub > EngSub. Use `hoster` menu to pick manually.
+- **Can I change quality?** Quality is selected automatically (highest available). Use `hoster` menu to switch.
+- **Can I download episodes?** Not currently, streaming only.
+- **Where is my watch history?** `~/.local/share/aniworld-cli/history.txt`
+- **Can I use vlc instead of mpv?** Yes, if mpv is not installed vlc is used automatically.
+- **Debug mode?** `aniworld-cli -d "anime"` saves HTML to `~/.local/share/aniworld-cli/debug_episode.html`.
 
-Der Debug-Modus:
-- Zeigt detaillierte Shell-Ausgaben
-- Speichert HTML-Dateien in `~/.local/share/aniworld-cli/debug_episode.html`
-- Gibt Hoster-Extraktions-Details aus
-
-### Automatische Hoster/Sprach/Qualitäts-Auswahl
-
-aniworld-cli wählt automatisch den besten verfügbaren Stream basierend auf dieser **intelligenten Priorisierung**:
-
-#### 1. Sprache (Höchste Priorität)
-- **GerDub** (Deutsche Synchronisation) - Wird IMMER bevorzugt
-- **GerSub** (Deutsche Untertitel)
-- **EngSub** (Englische Untertitel)
-
-#### 2. Qualität (Zweite Priorität)
-- **1080p** - Beste Qualität
-- **720p** - High Definition
-- **480p** - Standard Definition
-- **HD** - Allgemeine HD-Kennzeichnung
-
-#### 3. Hoster (Niedrigste Priorität)
-- **Filemoon** - Zuverlässig, benötigt Node.js
-- **Streamtape** - Gute Stabilität
-- **Vidmoly** - Solide Alternative
-- **Doodstream** - Fallback-Option
-- **VOE** - Letzte Alternative
-
-**Beispiel:** GerDub 480p wird automatisch über EngSub 1080p gewählt, da deutsche Synchronisation höchste Priorität hat.
-
-**Optimierungen:**
-- **150MB Cache** für unterbrechungsfreies Streaming
-- **30 Sekunden Readahead** verhindert Buffering
-- **10 Sekunden Initial-Puffer** für sofortigen Start
-- **HLS max bitrate** erzwingt beste Qualität
-
-#### Manueller Hoster-Wechsel
-
-Du kannst jederzeit während der Wiedergabe den Hoster wechseln:
-
-1. Wähle **"hoster"** im Post-Episode-Menü
-2. Dir werden alle verfügbaren Hoster für die aktuelle Episode angezeigt
-3. Wähle einen Hoster aus der Liste
-4. Das Video wird mit dem neuen Hoster geladen und abgespielt
-5. Das Menü bleibt sichtbar und zeigt den neuen Hoster an
-
-**Anwendungsfälle:**
-- Ein Hoster lädt zu langsam → Wechsle zu einem anderen
-- Video-Qualität ist schlecht → Probiere einen anderen Hoster
-- Hoster ist offline → Wähle eine funktionierende Alternative
-
-Der aktuelle Hoster wird immer im Menü-Prompt angezeigt:
-```
-One Piece | S1E42/61 | Hoster: Streamtape
-```
-
-### Hilfe anzeigen
-
-```bash
-aniworld-cli --help
-```
-
-### Version anzeigen
-
-```bash
-aniworld-cli --version
-```
-
-## Deinstallation
-
-Um aniworld-cli zu deinstallieren:
-
-```bash
-cd aniworld-cli
-sudo ./uninstall.sh
-```
-
-Das Uninstall-Script wird:
-- ✓ Symlink aus /usr/local/bin entfernen
-- ✓ Optional: Watch-History und Config löschen (du wirst gefragt)
-
-## Workflow
-
-1. **Start**: `aniworld-cli` (ohne Argument für interaktiven Modus)
-2. **Suche**: Gib einen Anime-Titel ein (z.B. "One Piece")
-3. **Auswahl**: Wähle aus den Suchergebnissen mit fzf-Vollbild (zeigt Episodenanzahl)
-4. **History-Check**: Falls vorhanden, fzf-Menü zum Fortsetzen oder Neustart
-5. **Staffel wählen**: Wähle die gewünschte Staffel (fzf-Vollbild)
-6. **Episode wählen**: Wähle die gewünschte Episode (fzf-Vollbild)
-7. **Hoster-Auswahl**: Automatische Auswahl des besten Hosters (Streamtape > Vidmoly > Doodstream > VOE)
-8. **Streaming**: Video wird in mpv/vlc abgespielt (im Hintergrund, Menü bleibt sichtbar)
-9. **Post-Episode-Menü**: Wähle zwischen next, replay, previous, select, hoster oder quit
-   - **hoster**: Wechsle zu einem anderen Streaming-Anbieter für bessere Qualität/Geschwindigkeit
-10. **Loop**: Zurück zu Schritt 8 für nahtloses Binge-Watching
-
-## Datei-Struktur
-
-```
-aniworld-cli/
-├── aniworld-cli           # Haupt-Executable
-├── lib/
-│   ├── scraper.sh        # Web-Scraping-Funktionen (AJAX API, Hoster-Extraktion)
-│   ├── player.sh         # Video-Player-Integration (mpv/vlc)
-│   ├── history.sh        # Watch-History-Management
-│   ├── ui.sh             # UI/UX-Funktionen (fzf-Vollbild-Menüs)
-│   └── extract_filemoon.js  # Filemoon Video-URL Dekoder (Node.js)
-├── install.sh            # Installations-Script
-├── uninstall.sh          # Deinstallations-Script
-├── LICENSE               # MIT License
-└── README.md             # Diese Datei
-
-~/.local/share/aniworld-cli/  # Data-Verzeichnis (XDG-konform)
-├── history.txt               # Watch-History (auto-generiert)
-└── config                    # Konfiguration (auto-generiert)
-```
-
-## Konfiguration
-
-Die Konfigurationsdatei wird automatisch unter `~/.local/share/aniworld-cli/config` erstellt.
-
-### Player-Präferenz
-
-Standardmäßig wird `mpv` bevorzugt, falls verfügbar. Du kannst die Präferenz manuell ändern:
-
-```bash
-echo "player=vlc" > ~/.local/share/aniworld-cli/config
-```
-
-## Watch History
-
-Die Watch History wird in `~/.local/share/aniworld-cli/history.txt` gespeichert.
-
-Format: `slug|season|episode|timestamp`
-
-Beispiel:
-```
-one-piece|1|42|2025-12-30T12:34:56+01:00
-naruto|2|15|2025-12-30T14:20:00+01:00
-```
-
-## Troubleshooting
-
-### "Keine Ergebnisse gefunden"
-
-- Überprüfe deine Internetverbindung
-- Versuche einen anderen Suchbegriff
-- AniWorld.to könnte offline sein
-
-### "Konnte Video-URL nicht extrahieren"
-
-- Der gewählte Hoster ist möglicherweise offline
-- Versuche einen anderen Hoster manuell auszuwählen
-- Manche Hoster benötigen spezielle Parsing-Logik
-- **Filemoon-Hoster**: Stelle sicher, dass Node.js installiert ist (`node --version`)
-  - Ubuntu/Debian: `sudo apt install nodejs`
-  - Arch: `sudo pacman -S nodejs`
-  - macOS: `brew install node`
-  - Windows: `scoop install nodejs`
-
-### Player startet nicht
-
-- Stelle sicher, dass `mpv` oder `vlc` installiert ist
-- Überprüfe mit: `which mpv` oder `which vlc`
-
-### Cloudflare-Blockierung
-
-Falls AniWorld.to Cloudflare-Schutz hat:
-- Das Skript setzt bereits User-Agent-Header
-- Versuche es nach einigen Minuten erneut
-- Zu viele Requests können zu temporären Blockierungen führen
-
-## Rechtlicher Hinweis
-
-Dieses Tool greift auf Inhalte von AniWorld.to zu. Die Legalität des Streamens von Inhalten auf dieser Plattform liegt in einer Grauzone. Nutze dieses Tool auf eigene Verantwortung.
-
-**Empfehlung**: Unterstütze offizielle Streaming-Dienste wie Crunchyroll, Wakanim oder Netflix für legalen Anime-Konsum.
-
-## Bekannte Einschränkungen
-
-- Keine Download-Funktion (nur Streaming)
-- Hoster-Verfügbarkeit kann variieren
-- Manche Hoster haben Anti-Scraping-Maßnahmen
-- Video-Qualität ist vom Hoster abhängig (nutze die Hoster-Auswahl um bessere Qualität zu finden)
+</details>
 
 ## Contributing
 
-Beiträge sind willkommen! So kannst du helfen:
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-1. **Fork** das Repository
-2. Erstelle einen **Feature Branch** (`git checkout -b feature/AmazingFeature`)
-3. **Committe** deine Änderungen (`git commit -m 'Add AmazingFeature'`)
-4. **Push** zum Branch (`git push origin feature/AmazingFeature`)
-5. Öffne einen **Pull Request**
+## Disclaimer
 
-### Bug Reports
+This tool accesses content from aniworld.to. The legality of streaming from this platform is a grey area. Use at your own risk. Support official services like Crunchyroll for legal anime consumption.
 
-Wenn du einen Bug findest, öffne bitte ein Issue mit:
-- Beschreibung des Problems
-- Schritte zur Reproduktion
-- Erwartetes vs. tatsächliches Verhalten
-- System-Info (OS, Dependencies-Versionen)
+## License
 
-### Feature Requests
-
-Feature-Ideen sind willkommen! Öffne ein Issue mit:
-- Beschreibung des Features
-- Use Case / Warum ist es nützlich?
-- Optionale Implementierungs-Ideen
-
-## Lizenz
-
-MIT License - siehe [LICENSE](LICENSE) Datei für Details
-
-Das bedeutet: Du kannst das Tool frei verwenden, modifizieren und verteilen.
+[GPL-3.0](LICENSE)
 
 ## Credits
 
-- Inspiriert von [ani-cli](https://github.com/pystardust/ani-cli)
-- Verwendet [fzf](https://github.com/junegunn/fzf) für interaktive Auswahl
-- Player: [mpv](https://mpv.io/) / [VLC](https://www.videolan.org/)
+- Inspired by [ani-cli](https://github.com/pystardust/ani-cli)
+- [fzf](https://github.com/junegunn/fzf), [mpv](https://mpv.io/), [yt-dlp](https://github.com/yt-dlp/yt-dlp)
