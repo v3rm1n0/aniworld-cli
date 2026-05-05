@@ -91,9 +91,27 @@ get_episodes() {
     clear_loading
 
     # Parse Episoden für die Staffel (Windows-kompatibel mit sed, optimiert)
-    echo "$html" | \
+    local episodes
+    episodes=$(echo "$html" | \
         sed -n "s/.*staffel-${season}\/episode-\([0-9][0-9]*\).*/\1/p" | \
-        sort -nu
+        sort -nu)
+
+    # Fallback: Wenn keine Episoden im Haupt-HTML gefunden (z.B. Staffel ohne deutsche
+    # Synchronisation), lade die Staffelseite direkt - diese enthält die Episodenliste
+    # unabhängig von der verfügbaren Sprachversion
+    if [ -z "$episodes" ]; then
+        show_loading "Lade Staffelseite"
+        local season_html
+        season_html=$(curl -sL --compressed -A "$USER_AGENT" \
+            "${BASE_URL}/anime/stream/${slug}/staffel-${season}")
+        clear_loading
+
+        episodes=$(echo "$season_html" | \
+            sed -n "s/.*staffel-${season}\/episode-\([0-9][0-9]*\).*/\1/p" | \
+            sort -nu)
+    fi
+
+    echo "$episodes"
 }
 
 # Hole Hoster-Links für eine Episode
@@ -142,11 +160,12 @@ get_hoster_links() {
             local lang_key
             lang_key=$(echo "$line" | sed -n 's/.*data-lang-key="\([^"]*\)".*/\1/p' | head -1)
 
-            # Mappe language keys zu lesbaren Namen (basierend auf aniworld.to Konvention)
+            # Mappe language keys zu lesbaren Namen (aniworld.to Konvention)
+            # 1 = Deutsch (GerDub), 2 = Englisch (EngSub), 3 = Deutsch mit UT (GerSub)
             case "$lang_key" in
                 1) language="GerDub" ;;
-                2) language="GerSub" ;;
-                3) language="EngSub" ;;
+                2) language="EngSub" ;;
+                3) language="GerSub" ;;
                 *) language="" ;;
             esac
 
@@ -203,7 +222,7 @@ extract_video_url() {
     # Folge dem Redirect
     local redirect_url="${BASE_URL}/redirect/${redirect_id}"
     local embed_url
-    embed_url=$(curl -sL -A "$USER_AGENT" \
+    embed_url=$(curl -sL --max-time 10 -A "$USER_AGENT" \
                      -w '%{url_effective}' \
                      -o /dev/null \
                      "$redirect_url")
@@ -228,14 +247,15 @@ extract_video_url() {
         video_url=$(extract_filemoon_url "$embed_url")
     fi
 
-    # Validate: must be non-empty and look like an actual video URL (not just an embed page)
-    if [ -n "$video_url" ] && [[ "$video_url" =~ \.(m3u8|mp4|ts)([\?#]|$) || "$video_url" == *"/hls/"* || "$video_url" == *"/playlist"* ]]; then
+    # Return the direct video URL if extraction succeeded; otherwise hand the embed
+    # URL to mpv so yt-dlp can resolve it (handles streamtape, doodstream, etc.)
+    if [ -n "$video_url" ]; then
         echo "$video_url"
-    elif [ -n "$video_url" ] && [ -n "${DEBUG:-}" ]; then
-        echo "WARN: Extracted URL doesn't look like a video: $video_url" >&2
-        echo ""
     else
-        echo ""
+        if [ -n "${DEBUG:-}" ]; then
+            echo "DEBUG: Manuelle Extraktion fehlgeschlagen, übergebe Embed-URL an yt-dlp: $embed_url" >&2
+        fi
+        echo "$embed_url"
     fi
 }
 
@@ -263,7 +283,7 @@ extract_vidmoly_url() {
     local embed_url="$1"
 
     local html
-    html=$(curl -s -A "$USER_AGENT" "$embed_url")
+    html=$(curl -s --max-time 10 -A "$USER_AGENT" "$embed_url")
 
     # Vidmoly verwendet oft "sources" in JavaScript (Windows-kompatibel)
     local video_url
@@ -289,7 +309,7 @@ extract_streamtape_url() {
     local embed_url="$1"
 
     local html
-    html=$(curl -s -A "$USER_AGENT" "$embed_url")
+    html=$(curl -s --max-time 10 -A "$USER_AGENT" "$embed_url")
 
     # Streamtape verschleiert die URL, suche nach typischen Patterns (Windows-kompatibel)
     local video_url
@@ -307,7 +327,7 @@ extract_doodstream_url() {
     local embed_url="$1"
 
     local html
-    html=$(curl -s -A "$USER_AGENT" "$embed_url")
+    html=$(curl -s --max-time 10 -A "$USER_AGENT" "$embed_url")
 
     # Doodstream verwendet ein spezielles Pattern
     local video_url
@@ -316,7 +336,7 @@ extract_doodstream_url() {
     if [ -n "$video_url" ]; then
         local base_url
         base_url=$(echo "$embed_url" | grep -oP 'https?://[^/]+')
-        video_url=$(curl -s -A "$USER_AGENT" "${base_url}/pass_md5/${video_url}")
+        video_url=$(curl -s --max-time 10 -A "$USER_AGENT" "${base_url}/pass_md5/${video_url}")
         echo "$video_url"
     else
         echo ""
