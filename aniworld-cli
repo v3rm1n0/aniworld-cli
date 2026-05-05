@@ -396,45 +396,12 @@ main_loop() {
     local season_episodes
     season_episodes=$(echo "$episodes" | wc -l)
 
-    # Aktualisiere CURRENT_TITLE für erste Episode
     CURRENT_TITLE="${anime_title} - S${season}E${episode}"
 
-    # Extrahiere Video mit automatischem Hoster-Fallback
-    local fallback_output
-    fallback_output=$(extract_video_with_fallback "$slug" "$season" "$episode")
-
-    local bg_pid=""
-    if [ -n "$fallback_output" ]; then
-        local video_url hoster_name
-        video_url=$(echo "$fallback_output" | head -1)
-        hoster_name=$(echo "$fallback_output" | sed -n '2p')
-
-        if [ -n "$video_url" ]; then
-            CURRENT_HOSTER_NAME="$hoster_name"
-            CURRENT_TITLE="${anime_title} - S${season}E${episode} | ${CURRENT_HOSTER_NAME}"
-            show_info "Hoster: ${CURRENT_HOSTER_NAME}"
-
-            {
-                play_video "$video_url"
-                save_history "$slug" "$season" "$episode"
-            } </dev/null &
-            bg_pid=$!
-        else
-            show_error "Konnte Video-URL nicht extrahieren"
-        fi
-    fi
-
-    # Windows-Fix: Warte, bis Background-Prozess abgeschlossen ist
-    if [ -n "$bg_pid" ]; then
-        wait "$bg_pid" 2>/dev/null || show_error "Fehler beim Laden der Episode"
-    fi
-    sleep 0.1
-
-    # Haupt-Loop mit Menü in while-Bedingung (exakt wie ani-cli)
-    # Zeige Menü mit aktuellen Infos (dynamisch aktualisiert)
+    # Erste Episode wird über denselben Pfad wie replay gestartet (first_run-Flag)
+    local first_run=true
     local prev_bg_pid=""
     while true; do
-        # Windows-Fix: Warte auf vorherigen Background-Prozess
         if [ -n "$prev_bg_pid" ]; then
             wait "$prev_bg_pid" 2>/dev/null || true
             sleep 0.1
@@ -448,13 +415,18 @@ main_loop() {
             echo "DEBUG: CURRENT_HOSTER_NAME=$CURRENT_HOSTER_NAME" >&2
         fi
 
-        # Baue Prompt dynamisch mit aktuellen Werten und zeige aktuellen Hoster
-        local hoster_info=""
-        if [ -n "$CURRENT_HOSTER_NAME" ]; then
-            hoster_info=" | Hoster: ${CURRENT_HOSTER_NAME}"
+        # Erste Iteration: sofort abspielen ohne Menü (wie replay)
+        local cmd
+        if [ "$first_run" = "true" ]; then
+            first_run=false
+            cmd="replay"
+        else
+            local hoster_info=""
+            if [ -n "$CURRENT_HOSTER_NAME" ]; then
+                hoster_info=" | Hoster: ${CURRENT_HOSTER_NAME}"
+            fi
+            cmd=$(printf "next\nreplay\nprevious\nselect\nhoster\nquit" | select_with_fzf "${anime_title} | S${season}E${episode}/${season_episodes}${hoster_info}")
         fi
-
-        cmd=$(printf "next\nreplay\nprevious\nselect\nhoster\nquit" | select_with_fzf "${anime_title} | S${season}E${episode}/${season_episodes}${hoster_info}")
 
         if [ -n "${DEBUG:-}" ]; then
             echo "DEBUG: Menu returned cmd='$cmd'" >&2
