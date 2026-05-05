@@ -403,11 +403,21 @@ extract_video_with_fallback() {
 
     # Sortiere Hoster nach Score (gleiche Logik wie select_and_save_hoster)
     local sorted_hosters
-    sorted_hosters=$(echo "$hosters" | awk -F'|' '
+    sorted_hosters=$(echo "$hosters" | awk -v pref="${LANG_PREFERENCE:-}" -F'|' '
         function language_score(lang) {
-            if (lang == "GerDub") return 300
-            if (lang == "GerSub") return 200
-            if (lang == "EngSub") return 100
+            if (pref == "GerSub") {
+                if (lang == "GerSub") return 300
+                if (lang == "GerDub") return 200
+                if (lang == "EngSub") return 100
+            } else if (pref == "EngSub") {
+                if (lang == "EngSub") return 300
+                if (lang == "GerSub") return 200
+                if (lang == "GerDub") return 100
+            } else {
+                if (lang == "GerDub") return 300
+                if (lang == "GerSub") return 200
+                if (lang == "EngSub") return 100
+            }
             return 0
         }
         function quality_score(qual) {
