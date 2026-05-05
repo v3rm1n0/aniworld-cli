@@ -30,6 +30,7 @@ CURRENT_TITLE=""
 CURRENT_HOSTER_NAME=""
 CURRENT_HOSTER_ID=""
 ANIWORLD_MPV_PID=""
+LANG_PREFERENCE=""  # "" = GerDub > GerSub > EngSub | "GerSub" = --sub | "EngSub" = --suben
 
 # === Dependencies Prüfen ===
 check_dependencies() {
@@ -82,9 +83,13 @@ OPTIONS:
     -v, --version       Zeige Version
     -c, --continue      Setze letzten Anime fort
     -d, --debug         Debug-Modus (speichert HTML für Fehleranalyse)
+    --sub               Priorisiere deutsche Untertitel (GerSub > GerDub > EngSub)
+    --suben             Priorisiere englische Untertitel (EngSub > GerSub > GerDub)
 
 BEISPIELE:
     aniworld-cli "One Piece"
+    aniworld-cli --sub "Naruto"
+    aniworld-cli --suben "One Piece"
     aniworld-cli --continue
     aniworld-cli --debug "Naruto"
     aniworld-cli -h
@@ -239,14 +244,24 @@ select_and_save_hoster() {
 
     # Automatische Auswahl (wenn nicht force_selection)
     if [ "$force_selection" = "false" ]; then
-        # Sortiere nach: 1. Sprache (GerDub > GerSub > EngSub)
+        # Sortiere nach: 1. Sprache (abhängig von LANG_PREFERENCE)
         #                2. Qualität (1080p > 720p > 480p > HD)
         #                3. Hoster (Filemoon > Streamtape > Vidmoly > Doodstream > VOE)
-        selected_line=$(echo "$hosters" | awk -F'|' '
+        selected_line=$(echo "$hosters" | awk -v pref="$LANG_PREFERENCE" -F'|' '
             function language_score(lang) {
-                if (lang == "GerDub") return 300
-                if (lang == "GerSub") return 200
-                if (lang == "EngSub") return 100
+                if (pref == "GerSub") {
+                    if (lang == "GerSub") return 300
+                    if (lang == "GerDub") return 200
+                    if (lang == "EngSub") return 100
+                } else if (pref == "EngSub") {
+                    if (lang == "EngSub") return 300
+                    if (lang == "GerSub") return 200
+                    if (lang == "GerDub") return 100
+                } else {
+                    if (lang == "GerDub") return 300
+                    if (lang == "GerSub") return 200
+                    if (lang == "EngSub") return 100
+                }
                 return 0
             }
             function quality_score(qual) {
@@ -597,6 +612,14 @@ main() {
             -d|--debug)
                 export DEBUG=1
                 set -x
+                shift
+                ;;
+            --sub)
+                LANG_PREFERENCE="GerSub"
+                shift
+                ;;
+            --suben)
+                LANG_PREFERENCE="EngSub"
                 shift
                 ;;
             *)
