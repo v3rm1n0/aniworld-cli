@@ -117,7 +117,7 @@ get_episodes() {
 
     # 2. Fallback: Wenn keine Episoden gefunden, lade dedizierte Staffelseite
     if [ -z "$episodes" ]; then
-        echo "DEBUG: Keine Episoden für Staffel ${season} auf Hauptseite gefunden. Lade Staffelseite..." >&2
+        [ -n "${DEBUG:-}" ] && echo "DEBUG: Keine Episoden für Staffel ${season} auf Hauptseite gefunden. Lade Staffelseite..." >&2
         show_loading "Lade Staffelseite"
         local season_html
         season_html=$(curl -sL --compressed -A "$USER_AGENT" \
