@@ -16,7 +16,7 @@ class AniworldCli < Formula
 
     libexec.install Dir["lib/*"]
 
-    inreplace bin/"aniworld-cli", 'LIB_DIR="${SCRIPT_DIR}/lib"', "LIB_DIR=\"#{libexec}\""
+    inreplace bin/"aniworld-cli", 'LIB_DIR="$SCRIPT_DIR/lib"', "LIB_DIR=\"#{libexec}\""
 
     doc.install "README.md"
   end
