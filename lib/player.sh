@@ -1,9 +1,21 @@
 #!/usr/bin/env bash
 # player.sh - Video Player Integration
 
+# Portable sed -i: handles BSD (macOS) vs GNU (Linux) difference
+sed_inplace() {
+    local expr="$1" file="$2"
+    if sed --version 2>/dev/null | grep -q GNU; then
+        sed -i "$expr" "$file"
+    else
+        sed -i '' "$expr" "$file"
+    fi
+}
+
 # Prüfe verfügbare Player (Windows-kompatibel)
 get_available_player() {
-    if command -v mpv &>/dev/null || command -v mpv.exe &>/dev/null; then
+    if command -v iina &>/dev/null || [ -f "/Applications/IINA.app/Contents/MacOS/IINA" ]; then
+        echo "iina"
+    elif command -v mpv &>/dev/null || command -v mpv.exe &>/dev/null; then
         echo "mpv"
     elif command -v vlc &>/dev/null || command -v vlc.exe &>/dev/null; then
         echo "vlc"
@@ -46,6 +58,19 @@ play_video() {
     fi
 
     case "$player" in
+        iina)
+           local iina_cmd="/Applications/IINA.app/Contents/MacOS/IINA"
+           local iina_slang iina_alang
+           case "${LANG_PREFERENCE:-}" in
+               EngSub) iina_slang="en,de" ; iina_alang="en,de" ;;
+               *)      iina_slang="de,en" ; iina_alang="de,en" ;;
+           esac
+           "$iina_cmd" --no-stdin \
+               --mpv-slang="$iina_slang" \
+               --mpv-alang="$iina_alang" \
+               "$video_url" >/dev/null 2>&1 &
+           ANIWORLD_MPV_PID=$!
+        ;;
         mpv)
             # Prüfe ob yt-dlp verfügbar ist
             local ytdl_path=""
@@ -63,6 +88,13 @@ play_video() {
                 referrer="https://filemoon.to/"
             fi
 
+            # Sprach-Tracks basierend auf LANG_PREFERENCE
+            local slang alang
+            case "${LANG_PREFERENCE:-}" in
+                EngSub) slang="en,de" ; alang="en,de" ;;
+                *)      slang="de,en" ; alang="de,en" ;;
+            esac
+
             if [ -n "$ytdl_path" ]; then
                 "$player_cmd" "$video_url" \
                     --referrer="$referrer" \
@@ -70,6 +102,8 @@ play_video() {
                     --script-opts=ytdl_hook-ytdl_path="$ytdl_path" \
                     --ytdl-format=bestvideo+bestaudio/best \
                     --force-media-title="$CURRENT_TITLE" \
+                    --slang="$slang" \
+                    --alang="$alang" \
                     --cache=yes \
                     --demuxer-max-bytes=150M \
                     --demuxer-max-back-bytes=75M \
@@ -85,6 +119,8 @@ play_video() {
                     --referrer="$referrer" \
                     --user-agent="$USER_AGENT" \
                     --force-media-title="$CURRENT_TITLE" \
+                    --slang="$slang" \
+                    --alang="$alang" \
                     --cache=yes \
                     --demuxer-max-bytes=150M \
                     --demuxer-max-back-bytes=75M \
@@ -104,9 +140,17 @@ play_video() {
                 referrer="https://filemoon.to/"
             fi
 
+            local vlc_lang
+            case "${LANG_PREFERENCE:-}" in
+                EngSub) vlc_lang="en,de" ;;
+                *)      vlc_lang="de,en" ;;
+            esac
+
             "$player_cmd" "$video_url" \
                 --http-referrer="$referrer" \
                 --http-user-agent="$USER_AGENT" \
+                --sub-language="$vlc_lang" \
+                --audio-language="$vlc_lang" \
                 --no-loop \
                 --play-and-exit \
                 --file-caching=5000 \
@@ -131,7 +175,7 @@ set_player_preference() {
     mkdir -p "$DATA_DIR"
 
     if [ -f "$CONFIG_FILE" ]; then
-        sed -i "/^player=/d" "$CONFIG_FILE"
+        sed_inplace "/^player=/d" "$CONFIG_FILE"
     fi
 
     echo "player=${player}" >> "$CONFIG_FILE"

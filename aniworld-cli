@@ -7,10 +7,35 @@ set -euo pipefail
 # Version
 VERSION="1.1.0"
 
+# Portable realpath (macOS Bash 3.2 compatible)
+resolve_realpath() {
+    local path="$1"
+    if command -v realpath &>/dev/null; then
+        realpath "$path"
+    elif command -v python3 &>/dev/null; then
+        python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$path"
+    else
+        local dir file depth=0
+        dir="$(cd "$(dirname "$path")" && pwd)"
+        file="$(basename "$path")"
+        while [ -L "$dir/$file" ]; do
+            depth=$((depth + 1))
+            if [ "$depth" -gt 40 ]; then
+                echo "resolve_realpath: too many symlink levels: $dir/$file" >&2
+                return 1
+            fi
+            path="$(readlink "$dir/$file")"
+            dir="$(cd "$dir" && cd "$(dirname "$path")" && pwd)"
+            file="$(basename "$path")"
+        done
+        echo "$dir/$file"
+    fi
+}
+
 # === Konfiguration ===
 # Resolve symlink to get actual script directory
 if [ -L "${BASH_SOURCE[0]}" ]; then
-    SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+    SCRIPT_PATH="$(resolve_realpath "${BASH_SOURCE[0]}")"
 else
     SCRIPT_PATH="${BASH_SOURCE[0]}"
 fi
@@ -191,7 +216,7 @@ select_season_interactive() {
         return 1
     fi
 
-    echo "$selection" | grep -oP '[0-9]+'
+    echo "$selection" | grep -o '[0-9]*' | grep -v '^$' | head -1
 }
 
 # Wähle Episode
@@ -222,7 +247,7 @@ select_episode_interactive() {
         return 1
     fi
 
-    echo "$selection" | grep -oP '[0-9]+'
+    echo "$selection" | grep -o '[0-9]*' | grep -v '^$' | head -1
 }
 
 # Wähle Hoster und speichere in globalen Variablen
@@ -313,7 +338,7 @@ select_and_save_hoster() {
         fi
 
         local selected_id
-        selected_id=$(echo "$selection" | grep -oP 'ID: \K[0-9]+')
+        selected_id=$(echo "$selection" | sed -n 's/.*ID: \([0-9]*\).*/\1/p')
         selected_line=$(echo "$hosters" | grep "^${selected_id}|")
     fi
 
@@ -380,6 +405,68 @@ play_episode() {
     return 0
 }
 
+# === Prefetch ===
+# Background-PID und Temp-File für Prefetch
+_PREFETCH_PID=""
+_PREFETCH_FILE=""
+
+start_prefetch() {
+    local slug="$1" season="$2" episode="$3" max_ep="$4"
+
+    # Nichts tun wenn Episode außerhalb des Bereichs
+    [ "$episode" -gt "$max_ep" ] && return 0
+
+    # Vorherigen Prefetch abbrechen
+    cancel_prefetch
+
+    _PREFETCH_FILE=$(mktemp)
+    local out_file="$_PREFETCH_FILE"
+    local slug_c="$slug" season_c="$season" episode_c="$episode"
+
+    (
+        result=$(extract_video_with_fallback "$slug_c" "$season_c" "$episode_c" 2>/dev/null)
+        # Speichere: erste Zeile = Episode-ID als Guard, dann Ergebnis
+        printf '%s\n%s\n' "${slug_c}|${season_c}|${episode_c}" "$result" > "$out_file"
+    ) &
+    _PREFETCH_PID=$!
+}
+
+try_consume_prefetch() {
+    local slug="$1" season="$2" episode="$3"
+
+    [ -z "$_PREFETCH_FILE" ] || [ ! -f "$_PREFETCH_FILE" ] && return 1
+
+    # Warte auf Prefetch-Prozess (kurz)
+    wait "$_PREFETCH_PID" 2>/dev/null || true
+
+    local guard
+    guard=$(head -1 "$_PREFETCH_FILE")
+
+    if [ "$guard" = "${slug}|${season}|${episode}" ]; then
+        # Guard passt — gib Ergebnis aus (Zeilen 2+)
+        local content
+        content=$(tail -n +2 "$_PREFETCH_FILE")
+        rm -f "$_PREFETCH_FILE"
+        _PREFETCH_FILE=""
+        _PREFETCH_PID=""
+        [ -n "$content" ] && echo "$content" && return 0
+    fi
+
+    rm -f "$_PREFETCH_FILE"
+    _PREFETCH_FILE=""
+    _PREFETCH_PID=""
+    return 1
+}
+
+cancel_prefetch() {
+    if [ -n "$_PREFETCH_PID" ] && kill -0 "$_PREFETCH_PID" 2>/dev/null; then
+        kill "$_PREFETCH_PID" 2>/dev/null || true
+    fi
+    rm -f "$_PREFETCH_FILE" 2>/dev/null || true
+    _PREFETCH_PID=""
+    _PREFETCH_FILE=""
+}
+
 # Hauptschleife (1:1 wie ani-cli)
 main_loop() {
     local slug="$1"
@@ -399,9 +486,10 @@ main_loop() {
     # Aktualisiere CURRENT_TITLE für erste Episode
     CURRENT_TITLE="${anime_title} - S${season}E${episode}"
 
-    # Extrahiere Video mit automatischem Hoster-Fallback
+    # Erste Episode: ggf. Prefetch nutzen (z.B. aus voriger Sitzung), sonst frisch extrahieren
     local fallback_output
-    fallback_output=$(extract_video_with_fallback "$slug" "$season" "$episode")
+    fallback_output=$(try_consume_prefetch "$slug" "$season" "$episode" \
+        || extract_video_with_fallback "$slug" "$season" "$episode")
 
     local bg_pid=""
     if [ -n "$fallback_output" ]; then
@@ -429,6 +517,11 @@ main_loop() {
         wait "$bg_pid" 2>/dev/null || show_error "Fehler beim Laden der Episode"
     fi
     sleep 0.1
+
+    # Prefetch nächste Episode, während User noch das Menü sieht
+    local _max_ep
+    _max_ep=$(echo "$episodes" | tail -1)
+    start_prefetch "$slug" "$season" "$((episode + 1))" "$_max_ep"
 
     # Haupt-Loop mit Menü in while-Bedingung (exakt wie ani-cli)
     # Zeige Menü mit aktuellen Infos (dynamisch aktualisiert)
@@ -562,9 +655,10 @@ main_loop() {
                 ;;
         esac
 
-        # Extrahiere Video mit automatischem Hoster-Fallback
+        # Erst Prefetch versuchen (next nach Replay/Auswahl trifft typischerweise zu)
         local fallback_output
-        fallback_output=$(extract_video_with_fallback "$slug" "$season" "$episode")
+        fallback_output=$(try_consume_prefetch "$slug" "$season" "$episode" \
+            || extract_video_with_fallback "$slug" "$season" "$episode")
 
         if [ -n "$fallback_output" ]; then
             local video_url hoster_name
@@ -583,12 +677,25 @@ main_loop() {
                 prev_bg_pid=$!
             fi
         fi
+
+        # Prefetch nächste Episode für die nächste Iteration
+        local _max_ep
+        _max_ep=$(echo "$episodes" | tail -1)
+        start_prefetch "$slug" "$season" "$((episode + 1))" "$_max_ep"
     done
+}
+
+_cleanup_all() {
+    cancel_prefetch
+    rm -rf "$_HTML_CACHE_DIR" 2>/dev/null || true
 }
 
 # === Main Entry Point ===
 main() {
     check_dependencies
+
+    _init_html_cache
+    trap '_cleanup_all' EXIT
 
     # Argument Parsing
     local search_term=""

@@ -1,16 +1,37 @@
-#!/usr/bin/env bash
 # scraper.sh - Web Scraping Functions
 
 # Session Cache für HTML-Seiten (reduziert HTTP-Requests)
-declare -A HTML_CACHE
+# Bash 3.2 compatible: tmpdir-based cache instead of declare -A
+_HTML_CACHE_DIR=""
+
+_init_html_cache() {
+    _HTML_CACHE_DIR=$(mktemp -d)
+}
+
+_html_cache_get() {
+    local key="$1"
+    local cache_file="${_HTML_CACHE_DIR}/${key}"
+    [ -f "$cache_file" ] && cat "$cache_file"
+}
+
+_html_cache_set() {
+    local key="$1" value="$2"
+    printf '%s' "$value" > "${_HTML_CACHE_DIR}/${key}"
+}
+
+# Default: German Dub, fallback to GerSub, then EngSub
+LANG_PREFERENCE="GerDub"
+export LANG_PREFERENCE
 
 # Hole HTML mit Cache
 get_anime_html() {
     local slug="$1"
 
     # Prüfe Cache
-    if [ -n "${HTML_CACHE[$slug]:-}" ]; then
-        echo "${HTML_CACHE[$slug]}"
+    local cached
+    cached=$(_html_cache_get "$slug")
+    if [ -n "$cached" ]; then
+        echo "$cached"
         return 0
     fi
 
@@ -19,7 +40,7 @@ get_anime_html() {
     html=$(curl -s --compressed -A "$USER_AGENT" "${BASE_URL}/anime/stream/${slug}")
 
     # Speichere im Cache
-    HTML_CACHE[$slug]="$html"
+    _html_cache_set "$slug" "$html"
 
     echo "$html"
 }
@@ -52,9 +73,9 @@ search_anime() {
         echo "$json" | \
             tr ',' '\n' | \
             grep '/anime/stream/' | \
-            grep -oP '"link":"\/anime\/stream\/\K[^"]+' | \
+            sed -n 's/.*"link":"\/anime\/stream\/\([^"]*\)".*/\1/p' | \
             while read -r slug; do
-                title=$(echo "$json" | grep -oP "\"link\":\"/anime/stream/${slug}\"[^}]*\"title\":\"\K[^\"]+")
+                title=$(echo "$json" | sed -n "s/.*\"link\":\"\/anime\/stream\/${slug}\"[^}]*\"title\":\"\([^\"]*\)\".*/\1/p" | head -1)
                 echo "${title}|${slug}"
             done | \
             sed 's/<em>//g; s/<\/em>//g'
@@ -78,28 +99,25 @@ get_seasons() {
         sort -nu
 }
 
-# Hole Episoden für eine Staffel (gecached)
+# Hole Episoden für eine Staffel mit Fallback auf die Staffelseite
 get_episodes() {
     local slug="$1"
     local season="$2"
 
     show_loading "Lade Episoden"
-
     local html
     html=$(get_anime_html "$slug")
-
     clear_loading
 
-    # Parse Episoden für die Staffel (Windows-kompatibel mit sed, optimiert)
+    # 1. Versuche: Episoden aus Haupt-HTML extrahieren
     local episodes
     episodes=$(echo "$html" | \
         sed -n "s/.*staffel-${season}\/episode-\([0-9][0-9]*\).*/\1/p" | \
         sort -nu)
 
-    # Fallback: Wenn keine Episoden im Haupt-HTML gefunden (z.B. Staffel ohne deutsche
-    # Synchronisation), lade die Staffelseite direkt - diese enthält die Episodenliste
-    # unabhängig von der verfügbaren Sprachversion
+    # 2. Fallback: Wenn keine Episoden gefunden, lade dedizierte Staffelseite
     if [ -z "$episodes" ]; then
+        echo "DEBUG: Keine Episoden für Staffel ${season} auf Hauptseite gefunden. Lade Staffelseite..." >&2
         show_loading "Lade Staffelseite"
         local season_html
         season_html=$(curl -sL --compressed -A "$USER_AGENT" \
@@ -109,6 +127,11 @@ get_episodes() {
         episodes=$(echo "$season_html" | \
             sed -n "s/.*staffel-${season}\/episode-\([0-9][0-9]*\).*/\1/p" | \
             sort -nu)
+    fi
+
+    # 3. Debug-Ausgabe, falls immer noch nichts gefunden wurde
+    if [ -z "$episodes" ]; then
+        echo "ERROR: Konnte keine Episoden für Staffel ${season} von ${slug} finden." >&2
     fi
 
     echo "$episodes"
@@ -139,11 +162,24 @@ get_hoster_links() {
     # Windows-kompatible Version ohne grep -oP (funktioniert mit Git Bash)
 
     # Extrahiere alle redirect IDs, Hoster-Namen und Metadaten
+    # current_lang tracks the language context across <li> elements:
+    # aniworld.to may put data-lang-key on a parent <li> (language tab) while
+    # data-link-target is on a child <li> (hoster row). The grep pre-filter
+    # would discard the parent before we see it, so we scan ALL <li> lines and
+    # track the last seen lang key, then skip non-redirect lines inside the loop.
+    current_lang=""
     echo "$html" | \
         tr '\n' ' ' | \
         sed 's/<li/\n<li/g' | \
-        grep 'data-link-target="/redirect/' | \
-        while read -r line; do
+        while IFS= read -r line || [ -n "$line" ]; do
+            # Always update language context when a lang-key marker is seen
+            if echo "$line" | grep -q 'data-lang-key='; then
+                current_lang=$(echo "$line" | sed -n 's/.*data-lang-key="\([^"]*\)".*/\1/p' | head -1)
+            fi
+
+            # Skip lines that are not hoster redirect links
+            echo "$line" | grep -q 'data-link-target="/redirect/' || continue
+
             # Extrahiere redirect_id mit sed (POSIX-kompatibel)
             redirect_id=$(echo "$line" | sed -n 's/.*data-link-target="\/redirect\/\([0-9]*\)".*/\1/p')
 
@@ -156,12 +192,11 @@ get_hoster_links() {
                 hoster=$(echo "$line" | sed -n 's/.*<h4>\([^<]*\)<\/h4>.*/\1/p' | head -1)
             fi
 
-            # Extrahiere Sprache (data-lang-key) und mappe zu lesbaren Namen
-            local lang_key
+            # Sprache: bevorzuge den getrackt Kontext, dann inline data-lang-key
             lang_key=$(echo "$line" | sed -n 's/.*data-lang-key="\([^"]*\)".*/\1/p' | head -1)
+            [ -z "$lang_key" ] && lang_key="$current_lang"
 
-            # Mappe language keys zu lesbaren Namen (aniworld.to Konvention)
-            # 1 = Deutsch (GerDub), 2 = Englisch (EngSub), 3 = Deutsch mit UT (GerSub)
+            # Mappe language keys zu lesbaren Namen (basierend auf aniworld.to Konvention)
             case "$lang_key" in
                 1) language="GerDub" ;;
                 2) language="EngSub" ;;
@@ -222,7 +257,7 @@ extract_video_url() {
     # Folge dem Redirect
     local redirect_url="${BASE_URL}/redirect/${redirect_id}"
     local embed_url
-    embed_url=$(curl -sL --max-time 10 -A "$USER_AGENT" \
+    embed_url=$(curl -sL -A "$USER_AGENT" \
                      -w '%{url_effective}' \
                      -o /dev/null \
                      "$redirect_url")
@@ -247,15 +282,14 @@ extract_video_url() {
         video_url=$(extract_filemoon_url "$embed_url")
     fi
 
-    # Return the direct video URL if extraction succeeded; otherwise hand the embed
-    # URL to mpv so yt-dlp can resolve it (handles streamtape, doodstream, etc.)
-    if [ -n "$video_url" ]; then
+    # Validate: must be non-empty and look like an actual video URL (not just an embed page)
+    if [ -n "$video_url" ] && [[ "$video_url" =~ \.(m3u8|mp4|ts)([\?#]|$) || "$video_url" == *"/hls/"* || "$video_url" == *"/playlist"* ]]; then
         echo "$video_url"
+    elif [ -n "$video_url" ] && [ -n "${DEBUG:-}" ]; then
+        echo "WARN: Extracted URL doesn't look like a video: $video_url" >&2
+        echo ""
     else
-        if [ -n "${DEBUG:-}" ]; then
-            echo "DEBUG: Manuelle Extraktion fehlgeschlagen, übergebe Embed-URL an yt-dlp: $embed_url" >&2
-        fi
-        echo "$embed_url"
+        echo ""
     fi
 }
 
@@ -283,7 +317,7 @@ extract_vidmoly_url() {
     local embed_url="$1"
 
     local html
-    html=$(curl -s --max-time 10 -A "$USER_AGENT" "$embed_url")
+    html=$(curl -s -A "$USER_AGENT" "$embed_url")
 
     # Vidmoly verwendet oft "sources" in JavaScript (Windows-kompatibel)
     local video_url
@@ -309,7 +343,7 @@ extract_streamtape_url() {
     local embed_url="$1"
 
     local html
-    html=$(curl -s --max-time 10 -A "$USER_AGENT" "$embed_url")
+    html=$(curl -s -A "$USER_AGENT" "$embed_url")
 
     # Streamtape verschleiert die URL, suche nach typischen Patterns (Windows-kompatibel)
     local video_url
@@ -327,16 +361,16 @@ extract_doodstream_url() {
     local embed_url="$1"
 
     local html
-    html=$(curl -s --max-time 10 -A "$USER_AGENT" "$embed_url")
+    html=$(curl -s -A "$USER_AGENT" "$embed_url")
 
     # Doodstream verwendet ein spezielles Pattern
     local video_url
-    video_url=$(echo "$html" | grep -oP '\$\.get\(["\x27]/pass_md5/[^"'\'']+["\x27]' | grep -oP '/pass_md5/\K[^"'\'']+')
+    video_url=$(echo "$html" | sed -n "s/.*\\\$\.get([\"']\(\/pass_md5\/[^\"']*\)[\"'].*/\1/p" | head -1 | sed 's|/pass_md5/||')
 
     if [ -n "$video_url" ]; then
         local base_url
-        base_url=$(echo "$embed_url" | grep -oP 'https?://[^/]+')
-        video_url=$(curl -s --max-time 10 -A "$USER_AGENT" "${base_url}/pass_md5/${video_url}")
+        base_url=$(echo "$embed_url" | sed -n 's|\(https\?://[^/]*\).*|\1|p')
+        video_url=$(curl -s -A "$USER_AGENT" "${base_url}/pass_md5/${video_url}")
         echo "$video_url"
     else
         echo ""
@@ -367,8 +401,7 @@ get_anime_title() {
         sed -n 's/.*<h1[^>]*>.*<span>\([^<]*\)<\/span>.*/\1/p' | \
         head -1
 }
-
-# Hole Gesamt-Episodenanzahl über alle Staffeln (mit Cache)
+# Hole Gesamt-Episodenanzahl über alle Staffeln (mit Cache und Fallback)
 get_total_episode_count() {
     local slug="$1"
 
@@ -395,6 +428,14 @@ get_total_episode_count() {
     while read -r season; do
         local count
         count=$(echo "$html" | sed -n "s/.*staffel-${season}\/episode-\([0-9][0-9]*\).*/\1/p" | sort -nu | tail -1)
+
+        # Fallback: Wenn keine Episoden im Haupt-HTML für diese Staffel, lade Staffelseite
+        if [ -z "$count" ]; then
+            local season_html
+            season_html=$(curl -sL --compressed -A "$USER_AGENT" "${BASE_URL}/anime/stream/${slug}/staffel-${season}")
+            count=$(echo "$season_html" | sed -n "s/.*staffel-${season}\/episode-\([0-9][0-9]*\).*/\1/p" | sort -nu | tail -1)
+        fi
+
         if [ -n "$count" ]; then
             total=$((total + count))
         fi
@@ -423,7 +464,7 @@ extract_video_with_fallback() {
 
     # Sortiere Hoster nach Score (gleiche Logik wie select_and_save_hoster)
     local sorted_hosters
-    sorted_hosters=$(echo "$hosters" | awk -v pref="${LANG_PREFERENCE:-}" -F'|' '
+    sorted_hosters=$(echo "$hosters" | awk -v pref="$LANG_PREFERENCE" -F'|' '
         function language_score(lang) {
             if (pref == "GerSub") {
                 if (lang == "GerSub") return 300
@@ -507,26 +548,25 @@ get_video_for_episode() {
     local season="$2"
     local episode="$3"
 
-    show_loading "Lade Episode ${episode}"
+    show_loading "Suche verfügbare Hoster für Episode ${episode}"
 
-    # Hole Hoster
-    local hoster_id
-    hoster_id=$(select_hoster_interactive "$slug" "$season" "$episode")
-
-    if [ -z "$hoster_id" ]; then
-        clear_loading
-        return 1
-    fi
-
-    # Extrahiere Video-URL
+    # Automatische Auswahl & Fallback (GerDub → GerSub → EngSub)
+    local result
+    result=$(extract_video_with_fallback "$slug" "$season" "$episode")
     local video_url
-    video_url=$(extract_video_url "$hoster_id")
+    video_url=$(echo "$result" | sed -n '1p')
+    local used_hoster
+    used_hoster=$(echo "$result" | sed -n '2p')
 
     clear_loading
 
     if [ -z "$video_url" ]; then
+        show_error "Keine funktionierende Quelle für Episode ${episode} gefunden."
         return 1
     fi
 
+    # Zeige an, welcher Hoster & welche Sprache verwendet wird
+    show_info "▶️  Verwende: ${used_hoster}"
     echo "$video_url"
+    return 0
 }

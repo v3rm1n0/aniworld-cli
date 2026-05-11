@@ -9,9 +9,7 @@ class AniworldCli < Formula
   depends_on "bash"
   depends_on "curl"
   depends_on "fzf"
-  depends_on "grep"
   depends_on "node"
-  depends_on "sed"
 
   def install
     bin.install "aniworld-cli"

@@ -182,12 +182,10 @@ install_dependencies() {
                 return 1
             fi
             echo -e "${BLUE}Installing dependencies with brew...${RESET}"
-            # macOS needs gnu-sed instead of sed, and node instead of nodejs
+            # macOS uses node instead of nodejs
             local mac_deps=()
             for dep in "${deps[@]}"; do
-                if [ "$dep" = "sed" ]; then
-                    mac_deps+=("gnu-sed")
-                elif [ "$dep" = "nodejs" ]; then
+                if [ "$dep" = "nodejs" ]; then
                     mac_deps+=("node")
                 else
                     mac_deps+=("$dep")
